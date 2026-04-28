@@ -15,16 +15,19 @@ const supabaseAdmin = createClient(
 )
 
 /**
- * Validates a Supabase JWT and returns the authenticated user ID.
+ * Validates a Supabase JWT and returns the authenticated user info.
  * Per Supabase skill: never trust client-provided userId directly.
  * Derive it from the verified JWT only.
  */
-async function getVerifiedUserId(token?: string): Promise<string | undefined> {
+async function getVerifiedUser(token?: string): Promise<{ id: string; name?: string } | undefined> {
   if (!token) return undefined
   try {
     const { data, error } = await supabaseAdmin.auth.getUser(token)
     if (error || !data.user) return undefined
-    return data.user.id
+    return {
+      id: data.user.id,
+      name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || data.user.email?.split('@')[0],
+    }
   } catch {
     return undefined
   }
@@ -32,9 +35,9 @@ async function getVerifiedUserId(token?: string): Promise<string | undefined> {
 
 export const registerChatHandlers = (io: Server, socket: Socket) => {
   // Verify the JWT on connect — never trust the raw userId from the client
-  const getVerifiedUser = async (): Promise<string | undefined> => {
+  const getUserInfo = async (): Promise<{ id: string; name?: string } | undefined> => {
     const token = socket.handshake.auth.token as string | undefined
-    return getVerifiedUserId(token)
+    return getVerifiedUser(token)
   }
 
   socket.on('session_start', ({ sessionId }: { sessionId: string }) => {
@@ -78,12 +81,13 @@ export const registerChatHandlers = (io: Server, socket: Socket) => {
       const history = conversationHistory.get(sessionId) || []
 
       // ── Security Gate 3: JWT Verification (Supabase skill) ─────
-      const userId = await getVerifiedUser()
+      const userInfo = await getUserInfo()
 
       const { responseText, updatedHistory } = await getAIResponse(
         text,
         history,
-        userId
+        userInfo?.id,
+        userInfo?.name
       )
 
       conversationHistory.set(sessionId, updatedHistory)

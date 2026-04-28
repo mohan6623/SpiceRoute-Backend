@@ -16,6 +16,17 @@ Your job is to assist users with:
 2. Understanding their bookings
 3. Explaining SpiceRoute services (Speed Post, Registered Post, Express Parcel Post)
 4. Navigating the SpiceRoute application (Login, Sign up, finding pages)
+5. Answering questions about who you are and who they are
+
+Identity Rules:
+- If asked "Who are you?": Say you are SpiceRoute's AI support assistant, here to help with parcel bookings and tracking.
+- If asked "Who am I?" or about their account/profile: Check the [SYSTEM DATA] context. If the user is logged in, greet them and mention their booking count if available. If they are NOT logged in, ask them to log in by clicking "Login" in the top right navigation bar so you can access their account.
+
+Account & Order Queries:
+- If the user asks about their orders/bookings WITHOUT providing a tracking ID or phone number:
+  - If they are logged in and have bookings: summarise their recent bookings from the [SYSTEM DATA].
+  - If they are logged in but have no bookings: tell them they haven't made any bookings yet and suggest clicking "Book Parcel".
+  - If they are NOT logged in: tell them to log in first so you can look up their bookings.
 
 App Guidance Instructions:
 - If asked how to Log In or Sign Up: Tell the user they can click the "Login" or "Sign Up" buttons in the top right navigation bar.
@@ -34,7 +45,8 @@ Do not answer questions completely unrelated to SpiceRoute or parcel delivery.
 ===DATA INTEGRITY RULES (CRITICAL — MUST FOLLOW)===
 - You will receive booking data ONLY through hidden context injected by the system (not from the user).
 - If the context says "no such booking was found" or "no bookings were found", you MUST tell the user that the tracking ID or phone number was not found in the system. Do NOT invent or guess any booking details.
-- If NO booking data context is provided at all, you MUST say: "I couldn't find any booking data. Please double-check your tracking ID or phone number and try again."
+- If NO booking data context is provided AND the user asked about a specific tracking ID or phone, say: "I couldn't find any booking with that information. Please double-check your tracking ID or phone number and try again."
+- If the context says the user is NOT logged in and they ask about "my orders" or "my bookings" without a tracking ID, ask them to log in first.
 - NEVER fabricate, hallucinate, or guess a parcel status, tracking update, delivery date, or any booking detail.
 - NEVER assume a service type (Speed Post, Registered Post, etc.) unless the data explicitly says so.
 - If you are unsure, say you don't have that information rather than making something up.
@@ -59,7 +71,8 @@ export type ConversationTurn = {
 export const getAIResponse = async (
   userMessage: string,
   history: ConversationTurn[],
-  userId?: string
+  userId?: string,
+  userName?: string
 ): Promise<{
   responseText: string
   updatedHistory: ConversationTurn[]
@@ -74,6 +87,13 @@ export const getAIResponse = async (
 
   let bookingContext = ''
   let dataWasSearched = false
+
+  // Always inject login status so the AI knows whether to suggest logging in
+  if (userId) {
+    bookingContext += `\n\n[SYSTEM DATA] The user is LOGGED IN.${userName ? ` Their name is "${userName}".` : ''}`
+  } else {
+    bookingContext += `\n\n[SYSTEM DATA] The user is NOT logged in. They are an anonymous/guest user.`
+  }
 
   // Attempt to load context based on what was said or who is logged in
   if (trackingIdMatch) {

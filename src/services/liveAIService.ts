@@ -7,7 +7,8 @@ dotenv.config()
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' })
 
-const LIVE_MODEL = 'gemini-2.5-flash-preview-native-audio-dialog'
+// Correct model per official docs: https://ai.google.dev/gemini-api/docs/live-api/capabilities
+const LIVE_MODEL = 'gemini-3.1-flash-live-preview'
 
 // System instruction for voice — same rules as text, but shorter responses for speech
 const VOICE_SYSTEM_INSTRUCTION = `
@@ -86,6 +87,8 @@ const BOOKING_TOOLS = [
 // Active voice sessions: socketId -> Gemini Live session
 const activeSessions = new Map<string, Session>()
 const sessionUserInfo = new Map<string, { id?: string; name?: string }>()
+// Track which sessions are fully ready to receive audio
+const sessionReady = new Map<string, boolean>()
 
 /**
  * Execute a function call from Gemini and return the result.
@@ -171,6 +174,9 @@ export async function startLiveSession(
         responseModalities: [Modality.AUDIO],
         systemInstruction: systemInstruction,
         tools: BOOKING_TOOLS,
+        // Enable transcriptions for both input and output (per docs)
+        outputAudioTranscription: {},
+        inputAudioTranscription: {},
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
@@ -182,7 +188,10 @@ export async function startLiveSession(
       callbacks: {
         onopen: () => {
           console.log(`✅ Gemini Live session opened for socket: ${socket.id}`)
-          socket.emit('voice_status', { state: 'idle' })
+          // Mark session as ready — frontend can now send audio
+          sessionReady.set(socket.id, true)
+          socket.emit('voice_ready')
+          socket.emit('voice_status', { state: 'listening' })
         },
 
         onmessage: async (message: LiveServerMessage) => {
@@ -216,9 +225,16 @@ export async function startLiveSession(
             })
           }
 
+          // Handle interruption (barge-in)
+          if (content?.interrupted) {
+            console.log(`🔇 [Voice] Model interrupted by user for socket: ${socket.id}`)
+            socket.emit('voice_interrupted')
+            socket.emit('voice_status', { state: 'listening' })
+          }
+
           // Handle turn completion
           if (content?.turnComplete) {
-            socket.emit('voice_status', { state: 'idle' })
+            socket.emit('voice_status', { state: 'listening' })
           }
 
           // Handle function calls (booking lookups)
@@ -253,6 +269,7 @@ export async function startLiveSession(
           console.log(`🔌 Gemini Live session closed for socket: ${socket.id} (code: ${e.code})`)
           activeSessions.delete(socket.id)
           sessionUserInfo.delete(socket.id)
+          sessionReady.delete(socket.id)
           socket.emit('voice_status', { state: 'disconnected' })
         },
       },
@@ -270,16 +287,21 @@ export async function startLiveSession(
 /**
  * Forward audio from the browser to the Gemini Live session.
  * Audio should be raw PCM 16-bit, 16kHz, mono.
+ * Returns true if audio was sent, false if session not ready.
  */
 export function sendAudioToLiveSession(
   socketId: string,
   audioData: string,  // base64 encoded PCM
   mimeType: string = 'audio/pcm;rate=16000'
-): void {
+): boolean {
+  // Only send if session is ready
+  if (!sessionReady.get(socketId)) {
+    return false
+  }
+
   const session = activeSessions.get(socketId)
   if (!session) {
-    console.warn(`⚠️ No active Live session for socket: ${socketId}`)
-    return
+    return false
   }
 
   session.sendRealtimeInput({
@@ -288,6 +310,7 @@ export function sendAudioToLiveSession(
       mimeType,
     },
   })
+  return true
 }
 
 /**
@@ -304,6 +327,7 @@ export async function closeLiveSession(socketId: string): Promise<void> {
     }
     activeSessions.delete(socketId)
     sessionUserInfo.delete(socketId)
+    sessionReady.delete(socketId)
   }
 }
 

@@ -15,6 +15,7 @@ const io = new Server(httpServer, {
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     methods: ['GET', 'POST'],
   },
+  maxHttpBufferSize: 10 * 1024 * 1024, // 10MB for audio chunks
 })
 
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }))

@@ -234,6 +234,7 @@ export async function startLiveSession(
 
           // Handle turn completion
           if (content?.turnComplete) {
+            socket.emit('voice_turn_complete')
             socket.emit('voice_status', { state: 'listening' })
           }
 

@@ -1,0 +1,34 @@
+# DigitalOcean App Platform configuration
+# https://docs.digitalocean.com/products/app-platform/reference/app-spec/
+
+name: spiceroute-backend
+region: blr  # Bangalore — closest to your Indian users
+
+services:
+  - name: api
+    # Path within this monorepo (the backend subfolder)
+    source_dir: /backend
+    github:
+      # Update this to your actual GitHub username/repo
+      repo: YOUR_GITHUB_USERNAME/spiceroute
+      branch: main
+      deploy_on_push: true
+    build_command: npm install && npm run build
+    run_command: node dist/index.js
+    instance_count: 1
+    instance_size_slug: basic-xxs  # $5/mo — perfectly enough for WebSockets
+    http_port: 3001
+    health_check:
+      http_path: /health
+    envs:
+      - key: PORT
+        value: "3001"
+        scope: RUN_TIME
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
+      # Add these as ENCRYPTED in the DO dashboard:
+      # SUPABASE_URL
+      # SUPABASE_SERVICE_ROLE_KEY
+      # GEMINI_API_KEY
+      # FRONTEND_URL  (e.g. https://spiceroute.me)
